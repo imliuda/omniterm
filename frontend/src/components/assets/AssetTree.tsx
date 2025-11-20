@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useImperativeHandle, useRef } from "react";
+import React, { useState, useEffect, useImperativeHandle, useRef, useMemo } from "react";
 // Debug flag: drag log
 const DEBUG_DND = true;
 import {
@@ -28,7 +28,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
 import Popover from '@mui/material/Popover';
-import AddHostWindow from "./AddHostWindow";
+import AddHostDialog from "./AddHostDialog.tsx";
 
 // Unified API base URL
 const API_BASE = "http://wails.localhost:8088";
@@ -108,6 +108,39 @@ const AssetTree = React.forwardRef<AssetTreeHandle, AssetsTreeProps>(({ }, ref) 
   const dragNodeIdRef = useRef<string | null>(null);
   const draggedAssetRef = useRef<Asset | null>(null); // cache dragged asset to avoid reference loss when filter changes or Safari issues
 
+  // ===== Folder options & path display =====
+  const folderTreeItems = useMemo(() => {
+    const folders = allAssets.filter(a => a.type === 'folder');
+    const childrenMap: Record<string, Asset[]> = {};
+    folders.forEach(f => { const pid = f.parent_id || '__root__'; (childrenMap[pid] ||= []).push(f); });
+    Object.values(childrenMap).forEach(arr => arr.sort((a,b)=> a.name.localeCompare(b.name)));
+    const res: { id: string; name: string; depth: number }[] = [];
+    const dfs = (parentKey: string, depth: number) => {
+      const arr = childrenMap[parentKey]; if (!arr) return;
+      arr.forEach(f => { res.push({ id: f.id, name: f.name, depth }); dfs(f.id, depth + 1); });
+    };
+    // Start depth at 1 so first-level folder shows indentation relative to root
+    dfs('__root__', 1);
+    return res;
+  }, [allAssets]);
+
+  const getFolderPath = (id: string): string => {
+    const idMap: Record<string, Asset> = {}; allAssets.forEach(a => { idMap[a.id] = a; });
+    const parts: string[] = []; const guard = new Set<string>();
+    let cur = idMap[id];
+    while (cur && !guard.has(cur.id)) {
+      parts.push(cur.name); guard.add(cur.id);
+      if (!cur.parent_id) break; cur = idMap[cur.parent_id];
+    }
+    return parts.reverse().join('/');
+  };
+
+  const selectedParentPath = useMemo(() => {
+    if (!newFolderParentId) return '';
+    return getFolderPath(newFolderParentId);
+  }, [newFolderParentId, allAssets]);
+  // ===== end =====
+
   // Expose refresh to parent
   useImperativeHandle(ref, () => ({ refresh: () => fetchAssets() }), []);
 
@@ -116,12 +149,15 @@ const AssetTree = React.forwardRef<AssetTreeHandle, AssetsTreeProps>(({ }, ref) 
     setLoading(true); setError("");
     try {
       const resp = await fetch(`${API_BASE}/api/assets`);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      if (!resp.ok) {
+        setError(`HTTP ${resp.status}`);
+        setAllAssets([]); setAssets([]);
+        return;
+      }
       const result: ApiResponse<AssetListResponse> = await resp.json();
       const list = (result.data as any)?.assets || (result.data as any)?.Assets || [];
       const full: Asset[] = Array.isArray(list) ? list : [];
       setAllAssets(full);
-      // compute visible
       const visible = computeVisibleAssets(full, search, typeFilter);
       setAssets(visible);
     } catch (e: any) {
@@ -166,10 +202,11 @@ const AssetTree = React.forwardRef<AssetTreeHandle, AssetsTreeProps>(({ }, ref) 
     const matchSet = new Set<string>();
     const idMap: Record<string, Asset> = {}; full.forEach(a => { idMap[a.id] = a; });
     const matchAsset = (a: Asset): boolean => {
-      if (a.name.toLowerCase().includes(q)) return true;
-      if ((a.description || "").toLowerCase().includes(q)) return true;
-      if (a.tags && a.tags.some(t => t.toLowerCase().includes(q))) return true;
-      return false; // remove config deep match to reduce single-char noise
+      return (
+        a.name.toLowerCase().includes(q) ||
+        (a.description || "").toLowerCase().includes(q) ||
+        (!!a.tags && a.tags.some(t => t.toLowerCase().includes(q)))
+      );
     };
     // Iterate full instead of type-filtered base so ancestor relations are intact
     full.forEach(a => { if (matchAsset(a)) matchSet.add(a.id); });
@@ -483,8 +520,6 @@ const AssetTree = React.forwardRef<AssetTreeHandle, AssetsTreeProps>(({ }, ref) 
   // Context menu capability checks
   const canConnect = !!contextNode?.asset && contextNode.asset.type !== "folder";
   const canRename = !!contextNode?.asset;
-  const canMove = !!contextNode?.asset;
-  const canMoveToRoot = !!contextNode?.asset && contextNode.asset.parent_id !== null;
   const canDelete = !!contextNode?.asset;
   const canAddHostHere = contextNode?.asset?.type === "folder";
   const canAddFolderHere = contextNode?.asset?.type === "folder";
@@ -492,7 +527,7 @@ const AssetTree = React.forwardRef<AssetTreeHandle, AssetsTreeProps>(({ }, ref) 
   const onDragEnd = () => { dragNodeIdRef.current = null; draggedAssetRef.current = null; clearDragHover(); };
 
   return (
-    <Box display="flex" flexDirection="column" height="100%">
+    <Box display="flex" flexDirection="column" height="100%" sx={{ borderRight: '1px solid #f0f0f0' }}>
       {/* Toolbar */}
       <Box display="flex" alignItems="center" gap={1} px={1} py={0.5}>
         {/*<Typography variant="subtitle2" flex={0}>Assets</Typography>*/}
@@ -549,17 +584,45 @@ const AssetTree = React.forwardRef<AssetTreeHandle, AssetsTreeProps>(({ }, ref) 
         {canDelete && <MenuItem onClick={() => contextNode && deleteNode(contextNode)} style={{ color: '#c62828' }}><DeleteIcon fontSize="small" style={{ marginRight: 8 }} />Delete</MenuItem>}
       </MuiMenu>
 
-      <AddHostWindow open={addHostModalVisible} parentId={addHostParentId || undefined} onClose={() => setAddHostModalVisible(false)} onSuccess={() => fetchAssets()} />
+      <AddHostDialog open={addHostModalVisible} parentId={addHostParentId || undefined} onClose={() => setAddHostModalVisible(false)} onSuccess={() => fetchAssets()} />
 
       {/* New folder dialog */}
       <Dialog open={addFolderDialogOpen} onClose={() => setAddFolderDialogOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Create Folder</DialogTitle>
         <DialogContent>
-          <TextField label="Folder Name" fullWidth value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} autoFocus />
+          <Box display="flex" flexDirection="column" gap={2} mt={0.5}>
+            <FormControl size="small" fullWidth>
+              {/*<InputLabel id="parent-folder-label">Parent Folder</InputLabel>*/}
+              <Select
+                labelId="parent-folder-label"
+                value={newFolderParentId || 'root'}
+                placeholder="Parent Folder"
+                renderValue={(value) => {
+                  if (value === 'root') return '/';
+                  if (typeof value === 'string') return '/' + getFolderPath(value);
+                  return '';
+                }}
+                onChange={(e) => { const v = e.target.value === 'root' ? null : e.target.value; setNewFolderParentId(v as string | null); }}
+              >
+                <MenuItem value="root">/</MenuItem>
+                {folderTreeItems.map(item => (
+                  <MenuItem key={item.id} value={item.id}>
+                    <Box pl={item.depth * 1.5} display="flex" alignItems="center">
+                      <FolderIcon fontSize="small" style={{ marginRight: 4 }} />{item.name}
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField placeholder="Folder Name" fullWidth value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} autoFocus />
+            <Typography variant="caption" color="text.secondary">
+              Path: /{selectedParentPath ? `${selectedParentPath}/${newFolderName || '(New Folder)'}` : `${newFolderName || '(New Folder)'}`}
+            </Typography>
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setAddFolderDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={createFolder}>Create</Button>
+          <Button variant="contained" onClick={createFolder} disabled={!newFolderName.trim()}>Create</Button>
         </DialogActions>
       </Dialog>
 

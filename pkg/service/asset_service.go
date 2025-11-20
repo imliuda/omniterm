@@ -148,7 +148,7 @@ func (s *AssetService) MoveAsset(id string, req *models.MoveAssetRequest) (*mode
 	if !ok {
 		return nil, fmt.Errorf("asset not found")
 	}
-	// 目标父级循环校验，避免移动到自身或子孙目录
+	// Validate target parent chain to avoid moving into itself or its descendant
 	if req.NewParentID != nil {
 		if *req.NewParentID == id {
 			return nil, fmt.Errorf("cannot move asset into itself")
@@ -156,11 +156,11 @@ func (s *AssetService) MoveAsset(id string, req *models.MoveAssetRequest) (*mode
 		visited := make(map[string]struct{})
 		curID := req.NewParentID
 		for curID != nil {
-			if _, seen := visited[*curID]; seen { // 防御潜在意外循环
+			if _, seen := visited[*curID]; seen { // Guard against potential unexpected cycles
 				break
 			}
 			visited[*curID] = struct{}{}
-			if *curID == id { // 发现子孙链条中包含自身
+			if *curID == id { // Detected that the descendant chain contains the asset itself
 				return nil, fmt.Errorf("cannot move asset into its descendant")
 			}
 			curAsset, exists := s.assets[*curID]

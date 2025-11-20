@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Box, Typography, IconButton } from "@mui/material"; // Removed Drawer
 import SmartToyIcon from "@mui/icons-material/SmartToy";
-import AiAssistant from "./ai-assitant/ai-assistant.tsx";
+import AiAssistant from "../ai-assitant/ai-assistant.tsx";
 
 interface RightToolbarProps {
   style?: React.CSSProperties;
@@ -23,7 +23,7 @@ interface DrawerState {
   width: number;
 }
 
-const RightToolbar: React.FC<RightToolbarProps> = ({
+const Toolbar: React.FC<RightToolbarProps> = ({
   style,
   tabs,
   activeTabKey,
@@ -272,4 +272,4 @@ const RightToolbar: React.FC<RightToolbarProps> = ({
   );
 };
 
-export default RightToolbar;
+export default Toolbar;

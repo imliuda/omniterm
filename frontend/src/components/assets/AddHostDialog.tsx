@@ -18,6 +18,8 @@ import {
 } from "@mui/material";
 import DesktopMacIcon from "@mui/icons-material/DesktopMac";
 import SecurityIcon from "@mui/icons-material/Security";
+import FolderIcon from '@mui/icons-material/Folder';
+import { buildFolderTreeItems, getFolderPath, BasicFolder } from './folderUtils';
 
 // Component props type
 interface AddHostWindowProps {
@@ -56,45 +58,7 @@ const assetTypeConfig: Record<
 
 const API_BASE_URL = "http://wails.localhost:8088/api/assets";
 
-// Indented folder tree helper (TreeSelect substitute)
-interface FolderNode {
-  id: string;
-  name: string;
-  parent_id: string | null;
-  children?: FolderNode[];
-}
-function buildFolderTree(flat: any[]): FolderNode[] {
-  const map: Record<string, FolderNode> = {};
-  flat.forEach((a) => {
-    map[a.id] = {
-      id: a.id,
-      name: a.name,
-      parent_id: a.parent_id,
-      children: [],
-    };
-  });
-  const roots: FolderNode[] = [];
-  flat.forEach((a) => {
-    const node = map[a.id];
-    if (a.parent_id) {
-      map[a.parent_id]?.children?.push(node);
-    } else {
-      roots.push(node);
-    }
-  });
-  return roots;
-}
-function flattenFolderTree(
-  nodes: FolderNode[],
-  depth = 0,
-): { id: string; name: string; depth: number }[] {
-  return nodes.flatMap((n) => [
-    { id: n.id, name: n.name, depth },
-    ...flattenFolderTree(n.children || [], depth + 1),
-  ]);
-}
-
-const AddHostWindow: React.FC<AddHostWindowProps> = ({
+const AddHostDialog: React.FC<AddHostWindowProps> = ({
   onClose,
   onSuccess,
   parentId,
@@ -105,7 +69,7 @@ const AddHostWindow: React.FC<AddHostWindowProps> = ({
 
   const [selectedType, setSelectedType] = useState<AssetType>("ssh");
   const [loading, setLoading] = useState(false);
-  const [folderOptions, setFolderOptions] = useState<any[]>([]);
+  const [folderOptions, setFolderOptions] = useState<BasicFolder[]>([]);
   const [activeTab, setActiveTab] = useState<"basic" | "advanced">("basic");
 
   // Form field unified state
@@ -127,7 +91,7 @@ const AddHostWindow: React.FC<AddHostWindowProps> = ({
       const response = await fetch(`${API_BASE_URL}?type=folder`);
       const result = await response.json();
       if (result.code === 200) {
-        const folders = result.data.assets || [];
+        const folders: BasicFolder[] = result.data.assets || [];
         setFolderOptions(folders);
       }
     } catch (error) {
@@ -175,146 +139,56 @@ const AddHostWindow: React.FC<AddHostWindowProps> = ({
     }
   };
 
-  // Render indented folder options
-  const folderTree = flattenFolderTree(buildFolderTree(folderOptions));
+  const folderTreeItems = React.useMemo(() => buildFolderTreeItems(folderOptions), [folderOptions]);
 
   // Basic config form
   function renderBasicConfigForm() {
+    const folderSelect = (
+      <FormControl>
+        <Select
+          value={parentFolder}
+          renderValue={(value) => {
+            if (value === 'root') return '/';
+            if (typeof value === 'string') return '/' + getFolderPath(value, folderOptions);
+            return '';
+          }}
+          onChange={(e) => setParentFolder(e.target.value)}
+        >
+          <MenuItem value="root">/</MenuItem>
+          {folderTreeItems.map(item => (
+            <MenuItem key={item.id} value={item.id}>
+              <Box pl={item.depth * 1.5} display="flex" alignItems="center">
+                <FolderIcon fontSize="small" style={{ marginRight: 4 }} />{item.name}
+              </Box>
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+    );
     switch (selectedType) {
-      case "ssh":
+      case 'ssh':
         return (
           <Box display="flex" flexDirection="column" gap={2}>
-            <FormControl>
-              <InputLabel id="folder-label">Select Folder</InputLabel>
-              <Select
-                labelId="folder-label"
-                value={parentFolder}
-                label="Select Folder"
-                onChange={(e) => setParentFolder(e.target.value)}
-              >
-                <MenuItem value="root">Root Folder</MenuItem>
-                {folderTree.map((f) => (
-                  <MenuItem key={f.id} value={f.id}>
-                    {" ".repeat(f.depth * 2)}
-                    {f.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <TextField
-              label="Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
+            {folderSelect}
+            <TextField placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />
             <Box display="flex" gap={2}>
-              <TextField
-                label="Username"
-                value={config.username || ""}
-                onChange={(e) =>
-                  setConfig((c: any) => ({ ...c, username: e.target.value }))
-                }
-                required
-                sx={{ flex: 1 }}
-              />
-              <TextField
-                label="Host"
-                value={config.host || ""}
-                onChange={(e) =>
-                  setConfig((c: any) => ({ ...c, host: e.target.value }))
-                }
-                required
-                sx={{ flex: 1 }}
-              />
-              <TextField
-                label="Port"
-                type="number"
-                value={config.port || 22}
-                onChange={(e) =>
-                  setConfig((c: any) => ({
-                    ...c,
-                    port: Number(e.target.value),
-                  }))
-                }
-                required
-                sx={{ width: 120 }}
-              />
+              <TextField placeholder="Username" value={config.username || ''} onChange={(e) => setConfig((c: any) => ({ ...c, username: e.target.value }))} required sx={{ flex: 1 }} />
+              <TextField placeholder="Host" value={config.host || ''} onChange={(e) => setConfig((c: any) => ({ ...c, host: e.target.value }))} required sx={{ flex: 1 }} />
+              <TextField placeholder="Port" type="number" value={config.port || 22} onChange={(e) => setConfig((c: any) => ({ ...c, port: Number(e.target.value) }))} required sx={{ width: 120 }} />
             </Box>
-            <TextField
-              label="Password"
-              type="password"
-              value={config.password || ""}
-              onChange={(e) =>
-                setConfig((c: any) => ({ ...c, password: e.target.value }))
-              }
-            />
-            <TextField
-              label="Private Key Path"
-              value={config.private_key_path || ""}
-              onChange={(e) =>
-                setConfig((c: any) => ({
-                  ...c,
-                  private_key_path: e.target.value,
-                }))
-              }
-            />
-            <TextField
-              label="Description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              multiline
-              minRows={2}
-            />
+            <TextField placeholder="Password" type="password" value={config.password || ''} onChange={(e) => setConfig((c: any) => ({ ...c, password: e.target.value }))} />
+            <TextField placeholder="Private Key Path" value={config.private_key_path || ''} onChange={(e) => setConfig((c: any) => ({ ...c, private_key_path: e.target.value }))} />
+            <TextField placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} multiline minRows={2} />
           </Box>
         );
-      case "local":
+      case 'local':
         return (
           <Box display="flex" flexDirection="column" gap={2}>
-            <FormControl>
-              <InputLabel id="folder-label-local">Select Folder</InputLabel>
-              <Select
-                labelId="folder-label-local"
-                value={parentFolder}
-                label="Select Folder"
-                onChange={(e) => setParentFolder(e.target.value)}
-              >
-                <MenuItem value="root">Root Folder</MenuItem>
-                {folderTree.map((f) => (
-                  <MenuItem key={f.id} value={f.id}>
-                    {" ".repeat(f.depth * 2)}
-                    {f.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <TextField
-              label="Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-            <TextField
-              label="Shell"
-              value={config.shell || ""}
-              onChange={(e) =>
-                setConfig((c: any) => ({ ...c, shell: e.target.value }))
-              }
-              required
-            />
-            <TextField
-              label="Working Dir"
-              value={config.working_dir || ""}
-              onChange={(e) =>
-                setConfig((c: any) => ({ ...c, working_dir: e.target.value }))
-              }
-            />
-            <TextField
-              label="Description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              multiline
-              minRows={2}
-            />
+            {folderSelect}
+            <TextField placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />
+            <TextField placeholder="Shell" value={config.shell || ''} onChange={(e) => setConfig((c: any) => ({ ...c, shell: e.target.value }))} required />
+            <TextField placeholder="Working Dir" value={config.working_dir || ''} onChange={(e) => setConfig((c: any) => ({ ...c, working_dir: e.target.value }))} />
+            <TextField placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} multiline minRows={2} />
           </Box>
         );
     }
@@ -326,7 +200,7 @@ const AddHostWindow: React.FC<AddHostWindowProps> = ({
       return (
         <Box display="flex" flexDirection="column" gap={2}>
           <TextField
-            label="Timeout"
+            placeholder="Timeout"
             type="number"
             value={config.timeout || 30}
             onChange={(e) =>
@@ -392,6 +266,7 @@ const AddHostWindow: React.FC<AddHostWindowProps> = ({
         </Box>
       </DialogContent>
       <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
         <Button
           variant="contained"
           onClick={createAsset}
@@ -399,10 +274,9 @@ const AddHostWindow: React.FC<AddHostWindowProps> = ({
         >
           {loading ? "Saving..." : "Save"}
         </Button>
-        <Button onClick={onClose}>Cancel</Button>
       </DialogActions>
     </Dialog>
   );
 };
 
-export default AddHostWindow;
+export default AddHostDialog;

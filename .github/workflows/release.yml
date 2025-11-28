@@ -17,6 +17,7 @@ permissions:
 env:
   GO_VERSION: '1.24'
   NODE_VERSION: '20'
+  APP_NAME: 'omniterm'
 
 jobs:
   build-linux:
@@ -119,18 +120,18 @@ jobs:
           brew install create-dmg || true
           # create-dmg may fail on first run if no signature, but still creates the DMG
           create-dmg \
-            --volname "OmniTerm" \
+            --volname "${{ env.APP_NAME }}" \
             --window-pos 200 120 \
             --window-size 600 400 \
             --icon-size 100 \
             --app-drop-link 425 178 \
-            --icon "omniterm.app" 175 178 \
-            "bin/omniterm-${{ matrix.arch }}.dmg" \
-            "bin/omniterm.app" || true
+            --icon "${{ env.APP_NAME }}.app" 175 178 \
+            "bin/${{ env.APP_NAME }}-${{ matrix.arch }}.dmg" \
+            "bin/${{ env.APP_NAME }}.app" || true
 
       - name: Compress app bundle
         run: |
-          cd bin && zip -r "omniterm-${{ matrix.arch }}.app.zip" omniterm.app
+          cd bin && zip -r "${{ env.APP_NAME }}-${{ matrix.arch }}.app.zip" ${{ env.APP_NAME }}.app
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -200,6 +201,7 @@ jobs:
           path: artifacts
 
       - name: Display structure of downloaded files
+        if: runner.debug == '1'
         run: find artifacts -type f -ls
 
       - name: Get version from tag

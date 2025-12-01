@@ -210,8 +210,12 @@ jobs:
         run: |
           if [ -n "${{ github.event.inputs.tag }}" ]; then
             VERSION="${{ github.event.inputs.tag }}"
-          else
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
             VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            echo "Error: No valid tag found. When using workflow_dispatch, you must provide a tag input (e.g., v0.1.0)."
+            echo "Current GITHUB_REF: $GITHUB_REF"
+            exit 1
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
